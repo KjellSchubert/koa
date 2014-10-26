@@ -4,7 +4,11 @@ python:
   - 3.4
 
 install:
-  - pip install -r requirements.txt --use-mirrors
+  - pip install -r requirements-dev.txt --use-mirrors
 
 script:
-  python -m unittest discover -s tests
+  # To run tests without computing cov:
+  #   python -m unittest discover -s tests
+  # And with cov:
+  coverage run -m unittest discover -s tests
+  coverage report -m
