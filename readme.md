@@ -1,5 +1,7 @@
-Koa server for asyncio + aiohttp
+Koa.js web framework port for asyncio + aiohttp
 ====
+
+[![Build Status](https://travis-ci.org/KjellSchubert/koa.svg?branch=master)](https://travis-ci.org/KjellSchubert/koa)
 
 [express.js](https://www.npmjs.org/package/express) is probably the most commonly used web framework 
 for [node.js](http://nodejs.org/), with Express being the 'E' in the [MEAN](http://en.wikipedia.org/wiki/MEAN) 
