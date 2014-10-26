@@ -22,7 +22,7 @@ def handle_get_users(koa_context, next):
 # handles /users:id
 @asyncio.coroutine
 def handle_get_user(koa_context, next):
-  id = int(koa_context.request.params.id)
+  id = int(koa_context.request.params['id'])
   if not (0 <= id and id < len(users)):
     koa_context.response.status = 404
     koa_context.response.body = "out of range"
@@ -91,6 +91,8 @@ if __name__ == '__main__':
 # >curl --verbose localhost:8480/admin/version
 # >curl localhost:8480/admin/users
 #       This lists the original set of users.
+# >curl localhost:8480/admin/users/2
+#       This lists the user by id (well, by index in users list)
 # >curl -X POST -H "Content-Type: application/json" -d "{\"name\":\"easterbunny\"}" http://localhost:8480/admin/users
 #       This appends a new user to the list of users.
 # >curl localhost:8480/admin/users
