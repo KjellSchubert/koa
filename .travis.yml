@@ -13,4 +13,7 @@ script:
   coverage run -m unittest discover -s tests
 
 after_success:
-  coverage report -m koa/common.py koa/core.py
+  # Get a simple coverage report without coveralls:
+  - coverage report -m koa/common.py koa/core.py
+  # And with coveralls:
+  - coveralls
