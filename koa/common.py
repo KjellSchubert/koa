@@ -9,6 +9,7 @@
 import asyncio
 import aiohttp
 import time
+import datetime
 import pdb
 import json
 import os
@@ -20,10 +21,21 @@ import urllib
 @asyncio.coroutine
 def logger(koa_context, next):
   start_time = time.clock()
-  print("request method={} path={}".format(koa_context.request.method, koa_context.request.path.path))
+
+  # logging at the beginning of a request is kinda spammy:
+  #   print("request method={} path={}".format(koa_context.request.method, koa_context.request.path.path))
+  # Having a watchdog here would be nice to have though, something that logs if request handling didn't 
+  # complete within a certain period (e.g. 5 seconds), like Q.delay(5000, function() {"potentially stalled request..."})
+
   yield from next
   end_time = time.clock()
-  print("request method={} path={} completed after {} ms".format(koa_context.request.method, koa_context.request.path.path, round((end_time-start_time) * 1000)))
+  durationInMs = round((end_time-start_time) * 1000)
+  print("{} {} {} - {} ms".format(
+    datetime.datetime.now().isoformat(), 
+    koa_context.request.method, 
+    koa_context.request.path.path, 
+    durationInMs
+  ))
 
 # middleware similar to https://www.npmjs.org/package/koa-body-parser
 # Reads the aiohttp.streams.FlowControlStreamReader payload storing the result 
