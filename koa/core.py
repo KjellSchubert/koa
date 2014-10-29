@@ -35,10 +35,21 @@ def app():
     )
     response.add_header('Content-Type', content_type)
     response.add_header('Content-Length', str(len(response_bytes))) # len encoded bytes
+    if status_code == 401:
+      response.add_header('WWW-Authenticate', 'Basic realm="Authorization Required"')
     response.send_headers()
     response.write(response_bytes)
     #print("response.write wrote {} bytes".format(len(response_bytes)))
     yield from response.write_eof()
+
+  @asyncio.coroutine
+  def send_http_response_status_only(writer, message, status_code):
+    response = aiohttp.Response(
+        writer, status_code, http_version=message.version
+    )
+    response.send_headers()
+    yield from response.write_eof()
+   
 
   class KoaRequest:
     # param message is the message passed to aiohttp.server.ServerHttpProtocol.handle_request()
@@ -57,11 +68,20 @@ def app():
       self.status = None # 200, 404, ...
       self.body = None # {}, string, ...
 
+  class KoaException(Exception):
+    def __init__(self, message, status):
+      self.message = message
+      self.status = status
+
   class KoaContext:
     # param message is the message passed to aiohttp.server.ServerHttpProtocol.handle_request()
     def __init__(self, message):
       self.request = KoaRequest(message)
       self.response = KoaResponse()  # to be filled out by the middleware handlers
+
+    # like ctx.throw() at http://koajs.com/
+    def throw(self, message, status):
+      raise KoaException(message, status)
 
   @asyncio.coroutine
   def koa_write_response(koa_context):
@@ -77,6 +97,8 @@ def app():
       yield from send_http_response(writer, message, 'application/octet-stream', koa_context.response.body, status_code)
     elif koa_context.response.body != None:
       yield from send_http_response_text(writer, message, "unknown response type: {}".format(koa_context.response.body.__class__.__name__), status_code = 500)
+    elif koa_context.response.body == None and koa_context.response.status != None:
+      yield from send_http_response_status_only(writer, message, koa_context.response.status)
     else:
       yield from send_http_response_text(writer, message, "no response for method={} path={}".format(koa_context.request.method, koa_context.request.path.path), status_code = 404)
 
@@ -108,7 +130,16 @@ def app():
       # This is the same mechanism koa.js uses for chaining & nesting middleware, I wonder
       # there's a more straightforward way to achieve the same.
       next = koa_write_response(context) # final one to execute, the only one that doesn't take a 'next' param
-      yield from self.middleware(context, next)
+      try:
+        yield from self.middleware(context, next)
+      except KoaException as ex:
+        # this here deals explicitly with exceptions thrown via KoaContext.throw(), e.g. thrown
+        # by koa.common.basic_auth() to send a 401 without executing any remaining middleware.
+        # Other kinda of exceptions are OK to bubble out of here, they should yield a 500
+        context.response.status = ex.status
+        context.response.body = ex.message
+        yield from next # calls koa_write_response(context)
+        
 
   # This stores the chain of middleware your app is composed of, executing this
   # chain for each incoming HTTP request
@@ -120,7 +151,7 @@ def app():
     # wires up koa.js-style middleware
     # param middleware is a coroutine that will receive params (request, next)
     def use(self, middleware):
-      assert callable(middleware), "middleware is supposed to be a (coroutine) function"
+      assert asyncio.iscoroutinefunction(middleware), "middleware is supposed to be a coroutine function"
       #assert len(inspect.getargspec(middleware).args) == 2, "middleware is supposed to be a coroutine function taking 2 args KoaContext and next"
       # TODO: assert that the func takes 2 params: koa_context and next
       self.middlewares += [middleware]

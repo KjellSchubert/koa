@@ -15,6 +15,7 @@ import json
 import os
 import os.path
 import urllib
+import base64
 
 # koa.js-style middleware for logging request handling times.
 # Similar to https://www.npmjs.org/package/koa-logger and https://www.npmjs.org/package/koa-response-time
@@ -155,6 +156,7 @@ def mount(parent_path, middleware):
   # apps or middleware that will function correctly regardless of which path segment(s) 
   # they should operate on.'
   assert parent_path.startswith('/'), 'mount path must begin with "/"'
+  assert asyncio.iscoroutinefunction(middleware), "mount argument is supposed to be middleware, so a coroutine function"
 
   if parent_path.endswith('/'):
     parent_path = parent_path[0:-1] # strip trailing slash to normalize prefix (if parent_path was '/' to begin with then it's an empty string now)
@@ -248,6 +250,7 @@ def router():
     # param path like "/config"
     # param handler is koajs middleware (so a coroutine taking KoaContext and next)
     def __init__(self, method, path, handler):
+      assert asyncio.iscoroutinefunction(handler), "route handler is supposed to be middleware, so a coroutine function"
       self.method = method
       self.path = ExpressJsStyleRoute(path)
       self.handler = handler
@@ -303,3 +306,29 @@ def router():
       return inner
 
   return KoaRouter()
+
+def basic_auth(credential_validator):
+  """ 
+  :param credential_validator: is a coroutine that takes (username, password) strings and is supposed to 
+         return True if the user is authenticated.
+  """
+
+  @asyncio.coroutine
+  def basic_auth_middleware(koa_context, next):
+
+    # deal with koa_context.request.headers.get('AUTHORIZATION') == 'Basic ...'
+    is_authenticated = False
+    auth_header = koa_context.request.headers.get('AUTHORIZATION')
+    if auth_header != None:
+      (auth_type, auth_payload) = auth_header.split(' ')
+      if auth_type.lower() == 'basic':
+        decodedPayload = base64.b64decode(auth_payload).decode('utf8')
+        (user, password) = decodedPayload.split(':')
+        is_authenticated = yield from credential_validator(user, password)
+
+    if is_authenticated:
+      yield from next
+    else:
+      koa_context.throw("unauthorized", 401) # if we'd just set response.status = 401 then 'yield from next' would still kick in due to ensure_we_yield_to_next()
+
+  return basic_auth_middleware

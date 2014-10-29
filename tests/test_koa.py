@@ -56,7 +56,7 @@ class KoaAppTestCase(unittest.TestCase):
 
   def test_exception_in_middleware_yields_response_500(self):
 
-    #@asyncio.coroutine
+    @asyncio.coroutine
     def middleware(koa_context, next):
       raise Exception('something something')
 
@@ -354,6 +354,42 @@ class KoaAppTestCase(unittest.TestCase):
       response_text = yield from response.text()
       self.assertEqual(response.status, 404)
       # note this test didn't verify anything actually got logged, kinda lame
+
+    test_session = KoaTestSession(app)
+    test_session.run_async_test(test())
+
+  def test_koa_auth(self):
+    app = koa.core.app()
+
+    # this is not a middleware, it's just a regular coroutine returning a bool
+    @asyncio.coroutine
+    def my_credential_validator(user, password):
+      return user == 'foo' and password == 'secret'
+
+    # this is middleware that is supposed to be basic-auth-protected
+    @asyncio.coroutine
+    def my_middleware(koa_context, next):
+      koa_context.response.body = "hi"
+
+    app.use(koa.common.basic_auth(my_credential_validator))
+    app.use(my_middleware)
+
+    @asyncio.coroutine
+    def test():
+
+      # test successful auth
+      response = yield from test_session.request('get', '/foo', auth = aiohttp.helpers.BasicAuth('foo', 'secret', 'utf-8'))
+      responseText = yield from response.text()
+      self.assertEqual(response.status, 200)
+      self.assertEqual(responseText, "hi")
+
+      # test wrong pass
+      response = yield from test_session.request('get', '/foo', auth = aiohttp.helpers.BasicAuth('foo', 'wrong pass', 'utf-8'))
+      self.assertEqual(response.status, 401)
+
+      # test missing auth
+      response = yield from test_session.request('get', '/foo')
+      self.assertEqual(response.status, 401)
 
     test_session = KoaTestSession(app)
     test_session.run_async_test(test())
