@@ -1,8 +1,4 @@
-from urllib.parse import urlparse, parse_qsl
-
 import asyncio
-import aiohttp
-import aiohttp.server
 import os
 import koa.core
 import koa.common
