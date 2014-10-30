@@ -5,6 +5,7 @@ import urllib
 import json
 import pdb
 import inspect
+import types
 
 # Creates koa app. Call app.use() to connect middleware coroutines.
 def app():
@@ -151,7 +152,7 @@ def app():
     # wires up koa.js-style middleware
     # param middleware is a coroutine that will receive params (request, next)
     def use(self, middleware):
-      assert asyncio.iscoroutinefunction(middleware), "middleware is supposed to be a coroutine function"
+      verify_is_middleware(middleware)
       #assert len(inspect.getargspec(middleware).args) == 2, "middleware is supposed to be a coroutine function taking 2 args KoaContext and next"
       # TODO: assert that the func takes 2 params: koa_context and next
       self.middlewares += [middleware]
@@ -179,3 +180,28 @@ def app():
       return KoaHttpRequestHandler(self.middleware())
 
   return KoaApp()
+
+def verify_is_middleware(candidate):
+  """ functiom that verifies that the given param meets the requirements for being koa-style middleware:
+      mostly asyncio.iscoroutinefunction() taking 2 params (koa_context, next). Throws
+      exception with some diagnostic info if this verification fails.
+  """
+  if not asyncio.iscoroutinefunction(candidate):
+    if (inspect.isgeneratorfunction(candidate)):
+      raise Exception("argument is not middleware: is a generator function (caller try to add @asyncio.coroutine decorator)")
+    if asyncio.iscoroutine(candidate):
+      raise Exception("argument is not middleware: is a generator object (caller try to remove parens)")
+    if isinstance(candidate, types.GeneratorType):
+      raise Exception("argument is not middleware: is a generator object (caller try to remove parens, add @asyncio.coroutine decorator)")
+    if callable(candidate):
+      raise Exception("argument is not middleware: is a function (caller try to add @asyncio.coroutine decorator)")
+    if candidate == None:
+      raise Exception("argument is not middleware: None")
+    if hasattr(candidate, 'middleware'):
+      if callable(candidate.middleware):
+        raise Exception("argument is not middleware: is has a member middleware() though (try to call it)")
+      raise Exception("argument is not middleware: is has a member middleware though (try to pass it)")
+    raise Exception("argument is not middleware: type is '" + candidate.__class__.__name__ + "'")
+  # TODO: verify that the coro func takes 2 params (koa_context, next)
+  # see http://stackoverflow.com/questions/3972290/how-can-i-get-the-argument-spec-on-a-decorated-function
+  # Atm I see ArgSpec(args=[], varargs='args', keywords='kw', defaults=None)

@@ -16,6 +16,7 @@ import os
 import os.path
 import urllib
 import base64
+import koa.core
 
 # koa.js-style middleware for logging request handling times.
 # Similar to https://www.npmjs.org/package/koa-logger and https://www.npmjs.org/package/koa-response-time
@@ -156,7 +157,7 @@ def mount(parent_path, middleware):
   # apps or middleware that will function correctly regardless of which path segment(s) 
   # they should operate on.'
   assert parent_path.startswith('/'), 'mount path must begin with "/"'
-  assert asyncio.iscoroutinefunction(middleware), "mount argument is supposed to be middleware, so a coroutine function"
+  koa.core.verify_is_middleware(middleware)
 
   if parent_path.endswith('/'):
     parent_path = parent_path[0:-1] # strip trailing slash to normalize prefix (if parent_path was '/' to begin with then it's an empty string now)
@@ -250,7 +251,7 @@ def router():
     # param path like "/config"
     # param handler is koajs middleware (so a coroutine taking KoaContext and next)
     def __init__(self, method, path, handler):
-      assert asyncio.iscoroutinefunction(handler), "route handler is supposed to be middleware, so a coroutine function"
+      koa.core.verify_is_middleware(handler)
       self.method = method
       self.path = ExpressJsStyleRoute(path)
       self.handler = handler

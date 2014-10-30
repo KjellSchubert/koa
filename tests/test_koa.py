@@ -393,3 +393,48 @@ class KoaAppTestCase(unittest.TestCase):
 
     test_session = KoaTestSession(app)
     test_session.run_async_test(test())
+
+  def test_verify_is_middleware_passes_for_decorated_coro(self):
+    @asyncio.coroutine
+    def f(context, next):
+      yield from next
+    koa.core.verify_is_middleware(f)
+
+  def test_verify_is_middleware_passes_for_decorated_func(self):
+    @asyncio.coroutine
+    def f(context, next):
+      pass  # no explicit yield
+    koa.core.verify_is_middleware(f)
+
+  def test_verify_is_middleware_detects_missing_decorator_on_generator(self):
+    def f(context, next):
+      yield from next
+    with self.assertRaises(Exception) as cm:
+      koa.core.verify_is_middleware(f)
+    self.assertEqual("argument is not middleware: is a generator function (caller try to add @asyncio.coroutine decorator)", str(cm.exception))
+
+  def test_verify_is_middleware_detects_missing_decorator_on_func(self):
+    def f(context, next):
+      pass
+    with self.assertRaises(Exception) as cm:
+      koa.core.verify_is_middleware(f)
+    self.assertEqual("argument is not middleware: is a function (caller try to add @asyncio.coroutine decorator)", str(cm.exception))
+
+  def test_verify_is_middleware_detects_None(self):
+    with self.assertRaises(Exception) as cm:
+      koa.core.verify_is_middleware(None)
+    self.assertEqual("argument is not middleware: None", str(cm.exception))
+
+  def test_verify_is_middleware_detects_coro_object(self):
+    @asyncio.coroutine
+    def f(context, next):
+      yield from next
+    with self.assertRaises(Exception) as cm:
+      koa.core.verify_is_middleware(f(None, None))
+    self.assertEqual("argument is not middleware: is a generator object (caller try to remove parens)", str(cm.exception))
+
+  def test_verify_is_middleware_detects_missing_call_to_member(self):
+    router = koa.common.router()
+    with self.assertRaises(Exception) as cm:
+      koa.core.verify_is_middleware(router)
+    self.assertEqual("argument is not middleware: is has a member middleware() though (try to call it)", str(cm.exception))
