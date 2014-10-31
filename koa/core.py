@@ -10,48 +10,6 @@ import types
 # Creates koa app. Call app.use() to connect middleware coroutines.
 def app():
 
-  # param writer is self.writer of aiohttp.server.ServerHttpProtocol
-  # param message is the original message the response is for
-  # response_jso is a dict() to be sent as json
-  @asyncio.coroutine
-  def send_http_response_json(writer, message, response_jso, status_code):
-    response_text = json.dumps(response_jso)
-    yield from send_http_response_text_utf8(writer, message, 'application/json', response_text, status_code)
-
-  @asyncio.coroutine
-  def send_http_response_text(writer, message, response_text, status_code):
-    yield from send_http_response_text_utf8(writer, message, 'text/html', response_text, status_code)
-
-  @asyncio.coroutine
-  def send_http_response_text_utf8(writer, message, content_type, response_text, status_code):
-    responsebytes = response_text.encode("utf-8")
-    yield from send_http_response(writer, message, content_type, responsebytes, status_code)
-
-  # param content_type e.g. 'application/json'
-  @asyncio.coroutine
-  def send_http_response(writer, message, content_type, response_bytes, status_code):
-    assert isinstance(response_bytes, bytes)
-    response = aiohttp.Response(
-        writer, status_code, http_version=message.version
-    )
-    response.add_header('Content-Type', content_type)
-    response.add_header('Content-Length', str(len(response_bytes))) # len encoded bytes
-    if status_code == 401:
-      response.add_header('WWW-Authenticate', 'Basic realm="Authorization Required"')
-    response.send_headers()
-    response.write(response_bytes)
-    #print("response.write wrote {} bytes".format(len(response_bytes)))
-    yield from response.write_eof()
-
-  @asyncio.coroutine
-  def send_http_response_status_only(writer, message, status_code):
-    response = aiohttp.Response(
-        writer, status_code, http_version=message.version
-    )
-    response.send_headers()
-    yield from response.write_eof()
-   
-
   class KoaRequest:
     # param message is the message passed to aiohttp.server.ServerHttpProtocol.handle_request()
     def __init__(self, message):
@@ -59,6 +17,7 @@ def app():
       self.method = message.method
       self.headers = message.headers
       self.path = urllib.parse.urlparse(message.path)
+      self.original_path = self.path   # koa.js lists an 'originalUrl' member, which stays the same even during chains of mount(), whereas path() will shrink for each mount() level
       self.querystring = self.path.query
       self.query = urllib.parse.parse_qs(self.querystring)
     
@@ -68,6 +27,8 @@ def app():
     def __init__(self):
       self.status = None # 200, 404, ...
       self.body = None # {}, string, ...
+      self.type = None  # will be inferred from body unless you set it explicitly
+      self.headers = [] # e.g. add tuples like ('Location', 'http://example.com/index.html')
 
   class KoaException(Exception):
     def __init__(self, message, status):
@@ -84,24 +45,83 @@ def app():
     def throw(self, message, status):
       raise KoaException(message, status)
 
+    def redirect(self, relative_url):
+      """ like koa.js context.redirect(), e.g. context.redirect('index.html')
+      """
+      # this here is kinda tricky when koa.common.mount is in effect: here we know 
+      # we want a relative redirect from / to /index.html, but when we send the 301 
+      # response we need the absolute location we are redirecting to.
+      # So here we should try to avoid knowing under which abs path we're mounted
+      base_path = self.request.original_path.path
+      if not base_path.endswith('/'):
+        base_path = base_path + '/'
+      loc =  base_path + relative_url
+      response = self.response
+      response.status = 301
+      response.headers.append( ['Location', loc] )
+      response.body = 'redirect to <a href="{}">{}</a>'.format(loc, loc)
+
+  def process_json_response(body, type, status):
+    jso = body
+    body = json.dumps(jso).encode('utf-8')
+    type = type or 'application/json'
+    status = status or 200
+    return (body, type, status)
+    
+  def process_text_response(body, type, status):
+    text = body
+    body = text.encode('utf-8')
+    type = type or 'text/html'
+    status = status or 200
+    return (body, type, status)
+
+  def process_bytes_response(body, type, status):
+    type = type or 'application/octet-stream'
+    status = status or 200
+    return (body, type, status)
+
   @asyncio.coroutine
   def koa_write_response(koa_context):
-    body = koa_context.response.body
-    status_code = koa_context.response.status or 200
-    writer = koa_context.response.writer
-    message = koa_context.request._message
+    request = koa_context.request
+    response = koa_context.response
+    headers = response.headers
+    body = response.body
+    status = response.status  # status code
+    type = response.type      # ContentType
+    writer = response.writer
+
+    # transform all variants of body to bytes
     if isinstance(body, dict) or isinstance(body, list):
-      yield from send_http_response_json(writer, message, koa_context.response.body, status_code)
+      (body, type, status) = process_json_response(body, type, status)
     elif isinstance(body, str):
-      yield from send_http_response_text(writer, message, koa_context.response.body, status_code)
+      (body, type, status) = process_text_response(body, type, status)
     elif isinstance(body, bytes):
-      yield from send_http_response(writer, message, 'application/octet-stream', koa_context.response.body, status_code)
-    elif koa_context.response.body != None:
-      yield from send_http_response_text(writer, message, "unknown response type: {}".format(koa_context.response.body.__class__.__name__), status_code = 500)
-    elif koa_context.response.body == None and koa_context.response.status != None:
-      yield from send_http_response_status_only(writer, message, koa_context.response.status)
+      (body, type, status) = process_bytes_response(body, type, status)
+    elif body != None:
+      msg = "unknown response type: {}".format(body.__class__.__name__)
+      (body, type, status) = process_text_response(msg, 'text/html', 500)
+    elif body == None and status != None:
+      pass
     else:
-      yield from send_http_response_text(writer, message, "no response for method={} path={}".format(koa_context.request.method, koa_context.request.path.path), status_code = 404)
+      msg = "no response for method={} path={}".format(request.method, request.path.path)
+      (body, type, status) = process_text_response(msg, 'text/html', 404)
+    assert body == None or isinstance(body, bytes)
+    assert type == None or isinstance(type, str)
+    assert isinstance(status, int)
+
+    http_response = aiohttp.Response(writer, status, http_version = request._message.version)
+    for header in headers:
+      assert len(header) == 2
+      http_response.add_header(header[0], header[1])
+      # e.g. http_response.add_header('WWW-Authenticate', 'Basic realm="Authorization Required"')
+    if body != None:
+      assert isinstance(body, bytes)
+      http_response.add_header('Content-Type', type or 'application/octet-stream')
+      http_response.add_header('Content-Length', str(len(body))) # len encoded bytes
+    http_response.send_headers()
+    if body != None:
+      yield from http_response.write(body)
+    yield from http_response.write_eof()
 
   # some middleware doesn't want to explicitly do a 'yield from next', so let's auto-yield
   # to the next middleware, draining the generator.

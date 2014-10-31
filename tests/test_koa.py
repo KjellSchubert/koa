@@ -322,7 +322,7 @@ class KoaAppTestCase(unittest.TestCase):
       response = yield from test_session.request('get', '/foo/bar.txt')
       response_bytes = yield from response.read()
       self.assertEqual(response.status, 200)
-      self.assertEqual(response.headers['CONTENT-TYPE'], 'application/octet-stream')
+      self.assertEqual(response.headers['CONTENT-TYPE'], 'text/html')
       self.assertEqual(response_bytes, "content of bar.txt".encode('utf8'))
 
     test_session = KoaTestSession(app)
@@ -338,7 +338,7 @@ class KoaAppTestCase(unittest.TestCase):
       response = yield from test_session.request('get', '/data/foo/bar.txt')
       response_bytes = yield from response.read()
       self.assertEqual(response.status, 200)
-      self.assertEqual(response.headers['CONTENT-TYPE'], 'application/octet-stream')
+      self.assertEqual(response.headers['CONTENT-TYPE'], 'text/html')
       self.assertEqual(response_bytes, "content of bar.txt".encode('utf8'))
 
     test_session = KoaTestSession(app)
@@ -438,3 +438,43 @@ class KoaAppTestCase(unittest.TestCase):
     with self.assertRaises(Exception) as cm:
       koa.core.verify_is_middleware(router)
     self.assertEqual("argument is not middleware: is has a member middleware() though (try to call it)", str(cm.exception))
+
+  def test_redirect(self):
+    
+    @asyncio.coroutine
+    def handle_get(context, next):
+      context.response.body = "content of index.html"
+
+    @asyncio.coroutine
+    def handle_redirect(context, next):
+      context.redirect('index.html')
+
+    app = koa.core.app()
+    router = koa.common.router()
+    router.get("/index.html", handle_get)
+    router.get("/", handle_redirect)
+    app.use(router.middleware())
+
+    @asyncio.coroutine
+    def test():
+
+      # let aiohttp get the redirect response
+      response = yield from test_session.request('get', '/', allow_redirects = False)
+      response_text = yield from response.text()
+      self.assertEqual(response.status, 301)
+      self.assertEqual(response.headers['LOCATION'], "/index.html")
+
+      # test the redirect target route directly
+      response = yield from test_session.request('get', '/index.html')
+      response_text = yield from response.text()
+      self.assertEqual(response.status, 200)
+      self.assertEqual(response_text, "content of index.html")
+
+      # let aiohttp resolve the redirect
+      response = yield from test_session.request('get', '/') # with allow_redirects = True
+      response_text = yield from response.text()
+      self.assertEqual(response.status, 200)
+      self.assertEqual(response_text, "content of index.html")
+
+    test_session = KoaTestSession(app)
+    test_session.run_async_test(test())

@@ -142,6 +142,10 @@ def static(file_or_dir_path):
       finally:
         yield from run_async(lambda: os.close(request_file_handle))
       koa_context.response.body = bytes_read
+      if relative_file_name.endswith('.htm') or relative_file_name.endswith('.html') or relative_file_name.endswith('.txt'):
+        koa_context.response.type = 'text/html'
+      if relative_file_name.endswith('.css'):
+        koa_context.response.type = 'text/css'
 
   return static_middleware
 
@@ -332,6 +336,7 @@ def basic_auth(credential_validator):
     if is_authenticated:
       yield from next
     else:
+      koa_context.response.headers.append(('WWW-Authenticate', 'Basic realm="Authorization Required"'))
       koa_context.throw("unauthorized", 401) # if we'd just set response.status = 401 then 'yield from next' would still kick in due to ensure_we_yield_to_next()
 
   return basic_auth_middleware
