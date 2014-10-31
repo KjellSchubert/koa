@@ -85,11 +85,12 @@ def static(file_or_dir_path):
   # In general '..' is illegal in requests
   # param like 'foo/bar.txt'
   # TODO: not safe enough for production envs atm!
-  def ensure_is_valid_path(p):
+  def is_valid_path(p):
     path_components = split_path(p)
     for component in path_components:
       if not is_valid_path_component(component):
-        raise Exception("invalid component '{}' in path {}" + p)
+        return False
+    return True
 
   def strip_leading_slash(file_name):
     return file_name[1:] if file_name.startswith('/') else file_name
@@ -121,7 +122,8 @@ def static(file_or_dir_path):
     # See https://docs.python.org/3/library/asyncio-dev.html#handle-blocking-functions-correctly
     # and https://gist.github.com/kunev/f83146d407c81a2d64a6
     relative_file_name = strip_leading_slash(koa_context.request.path.path)
-    ensure_is_valid_path(relative_file_name)
+    if not is_valid_path(relative_file_name):
+      return # don't even throw an exception so give other middleware a chance to handle it. Though usually you'd mount the static() middleware last in the chain, so should make little difference.
     requested_file_name = os.path.join(file_or_dir_path, relative_file_name)
     does_request_file_exist = yield from run_async(lambda: os.path.isfile(requested_file_name))
     if does_request_file_exist:
