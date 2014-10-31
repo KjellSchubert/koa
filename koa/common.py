@@ -189,15 +189,18 @@ def mount(parent_path, middleware):
     if remaining_path_suffix == orig_path.path:
 
       # optional optimization for mounting at '/': just call the middleware without modifying the path
+      #print("DEBUG mount() entering mountee: ", parent_path)
       yield from middleware(koa_context, nop())
 
     elif remaining_path_suffix != None:   # otherwise the prefix doesn't match, just call next handler then
 
       koa_context.request.path = urllib.parse.ParseResult(orig_path.scheme, orig_path.netloc, remaining_path_suffix, orig_path.params, orig_path.query, orig_path.fragment)
       try:
+        #print("DEBUG mount() entering mountee: ", parent_path)
         yield from middleware(koa_context, nop())  # mounted middleware executes with remaining path suffix
       finally:
         koa_context.request.path = orig_path
+        #print("DEBUG mount() exiting mountee: ", parent_path)
 
     yield from next
 
@@ -302,8 +305,12 @@ def router():
         for i in reversed(range(len(self._routes))):
           route = self._routes[i]
           if route.method == context.request.method:
-            params = route.path.matches(context.request.path.path)
+            matched_path = context.request.path.path
+            if len(matched_path) == 0:
+              matched_path = '/' # since we force routes to start with a '/'
+            params = route.path.matches(matched_path)
             does_route_match = params != None
+            #print("DEBUG: router() {} {} match={}".format(route.method, matched_path, does_route_match))
             if does_route_match:
               context.request.params = params
               middleware = route.handler(context, next)
