@@ -50,14 +50,17 @@ def body_parser(koa_context, next):
   if request.method in ["POST", "PUT"]:   # though I guess even a GET request could have a payload? TODO
 
     # Should we use aiohttp.protocol.HttpPayloadParser instead? How? Doing it manually for now:
+    content_type = koa_context.request._message.headers['CONTENT-TYPE'].split(';')
+    type = content_type[0]
+    encoding = content_type[1].split('=')[1] if len(content_type) >= 2 and content_type[1].startswith('charset=') else 'utf-8' # thats probably not general enough, TODO
     lines = []
     for i in range(0,10):
       line = yield from koa_context.request.payload.readline()
       if len(line) == 0:
         break # is the the proper EOS?
-      lines.append(line.decode('utf8'))
+      lines.append(line.decode(encoding))
     payload_string = "".join(lines)
-    koa_context.request.body = json.loads(payload_string) if request.headers.get('CONTENT-TYPE') == 'application/json' else payload_string
+    koa_context.request.body = json.loads(payload_string) if type == 'application/json' else payload_string
     #print("stored payload in request.body:", koa_context.request.body)
 
   yield from next
@@ -146,6 +149,8 @@ def static(file_or_dir_path):
         koa_context.response.type = 'text/html'
       if relative_file_name.endswith('.css'):
         koa_context.response.type = 'text/css'
+      if relative_file_name.endswith('.js'):
+        koa_context.response.type = 'application/javascript'
 
   return static_middleware
 
