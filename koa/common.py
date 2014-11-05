@@ -47,7 +47,7 @@ def logger(koa_context, next):
 @asyncio.coroutine
 def body_parser(koa_context, next):
   request = koa_context.request
-  if request.method in ["POST", "PUT"]:   # though I guess even a GET request could have a payload? TODO
+  if 'CONTENT-TYPE' in koa_context.request._message.headers: # typically POST, PUT have a payload, but it's valid for other requests like GET also
 
     # Should we use aiohttp.protocol.HttpPayloadParser instead? How? Doing it manually for now:
     content_type = koa_context.request._message.headers['CONTENT-TYPE'].split(';')
